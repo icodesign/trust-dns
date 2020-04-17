@@ -17,7 +17,7 @@ use futures::{future, Future, FutureExt, StreamExt};
 #[cfg(feature = "dns-over-rustls")]
 use rustls::{Certificate, PrivateKey};
 use tokio::net;
-use tokio::runtime::Runtime;
+use tokio::runtime::Handle;
 use tokio::task::JoinHandle;
 
 use proto::error::ProtoError;
@@ -52,16 +52,15 @@ impl<T: RequestHandler> ServerFuture<T> {
     }
 
     /// Register a UDP socket. Should be bound before calling this function.
-    pub fn register_socket(&mut self, socket: net::UdpSocket, runtime: &Runtime) {
+    pub fn register_socket(&mut self, socket: net::UdpSocket, runtime: Handle) {
         debug!("registering udp: {:?}", socket);
-
-        let spawner = runtime.handle().clone();
 
         // create the new UdpStream
         let (mut buf_stream, stream_handle) = UdpStream::with_bound(socket);
         //let request_stream = RequestStream::new(buf_stream, stream_handle);
         let handler = self.handler.clone();
 
+        let runtime1 = runtime.clone();
         // this spawns a ForEach future which handles all the requests into a Handler.
         let join_handle = runtime.spawn(async move {
             while let Some(message) = buf_stream.next().await {
@@ -78,7 +77,7 @@ impl<T: RequestHandler> ServerFuture<T> {
                 let handler = handler.clone();
                 let stream_handle = stream_handle.clone();
 
-                spawner.spawn(async move {
+                runtime1.spawn(async move {
                     self::handle_raw_request(message, handler, stream_handle).await;
                 });
             }
@@ -91,7 +90,7 @@ impl<T: RequestHandler> ServerFuture<T> {
     }
 
     /// Register a UDP socket. Should be bound before calling this function.
-    pub fn register_socket_std(&mut self, socket: std::net::UdpSocket, runtime: &Runtime) {
+    pub fn register_socket_std(&mut self, socket: std::net::UdpSocket, runtime: Handle) {
         self.register_socket(
             net::UdpSocket::from_std(socket).expect("bad handle?"),
             runtime,
@@ -114,13 +113,13 @@ impl<T: RequestHandler> ServerFuture<T> {
         &mut self,
         listener: net::TcpListener,
         timeout: Duration,
-        runtime: &Runtime,
+        runtime: Handle,
     ) -> io::Result<()> {
         debug!("register tcp: {:?}", listener);
 
-        let spawner = runtime.handle().clone();
         let handler = self.handler.clone();
 
+        let runtime1 = runtime.clone();
         // for each incoming request...
         let join = runtime.spawn(async move {
             let mut listener = listener;
@@ -138,7 +137,7 @@ impl<T: RequestHandler> ServerFuture<T> {
                 let handler = handler.clone();
 
                 // and spawn to the io_loop
-                spawner.spawn(async move {
+                runtime1.spawn(async move {
                     let src_addr = tcp_stream.peer_addr().unwrap();
                     debug!("accepted request from: {}", src_addr);
                     // take the created stream...
@@ -190,7 +189,7 @@ impl<T: RequestHandler> ServerFuture<T> {
         &mut self,
         listener: std::net::TcpListener,
         timeout: Duration,
-        runtime: &Runtime,
+        runtime: Handle,
     ) -> io::Result<()> {
         self.register_listener(net::TcpListener::from_std(listener)?, timeout, runtime)
     }
@@ -214,18 +213,18 @@ impl<T: RequestHandler> ServerFuture<T> {
         listener: net::TcpListener,
         timeout: Duration,
         certificate_and_key: ((X509, Option<Stack<X509>>), PKey<Private>),
-        runtime: &Runtime,
+        runtime: Handle,
     ) -> io::Result<()> {
         use trust_dns_openssl::{tls_server, TlsStream};
 
         let ((cert, chain), key) = certificate_and_key;
 
-        let spawner = runtime.handle().clone();
         let handler = self.handler.clone();
         debug!("registered tcp: {:?}", listener);
 
         let tls_acceptor = Box::pin(tls_server::new_acceptor(cert, chain, key)?);
 
+        let runtime1 = runtime.clone();
         // for each incoming request...
         let join = runtime.spawn(async move {
             let mut listener = listener;
@@ -244,7 +243,7 @@ impl<T: RequestHandler> ServerFuture<T> {
                 let tls_acceptor = tls_acceptor.clone();
 
                 // kick out to a different task immediately, let them do the TLS handshake
-                spawner.spawn(async move {
+                runtime1.spawn(async move {
                     let src_addr = tcp_stream.peer_addr().unwrap();
                     debug!("starting TLS request from: {}", src_addr);
 
