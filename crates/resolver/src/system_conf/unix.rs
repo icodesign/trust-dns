@@ -30,7 +30,7 @@ pub fn read_system_conf() -> io::Result<(ResolverConfig, ResolverOpts)> {
     Ok(read_resolv_conf("/etc/resolv.conf")?)
 }
 
-fn read_resolv_conf<P: AsRef<Path>>(path: P) -> io::Result<(ResolverConfig, ResolverOpts)> {
+pub fn read_resolv_conf<P: AsRef<Path>>(path: P) -> io::Result<(ResolverConfig, ResolverOpts)> {
     let mut data = String::new();
     let mut file = File::open(path)?;
     file.read_to_string(&mut data)?;

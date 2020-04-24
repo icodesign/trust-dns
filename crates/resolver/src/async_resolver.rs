@@ -265,6 +265,10 @@ impl<C: DnsHandle, P: ConnectionProvider<Conn = C>> AsyncResolver<C, P> {
         Self::new_with_conn(config, options, conn_provider).await
     }
 
+    pub fn config(&self) -> &ResolverConfig {
+        &self.config
+    }
+
     /// Generic lookup for any RecordType
     ///
     /// *WARNING* this interface may change in the future, see if one of the specializations would be better.
